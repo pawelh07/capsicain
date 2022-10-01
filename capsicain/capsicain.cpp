@@ -123,7 +123,7 @@ struct LoopState
     bool tapped = false;
     bool tappedSlow = false;  //autorepeat set in before key release
     bool tapHoldMake = false;  //tap-and-hold action (like LAlt > mod12 // LAlt)
-
+    int original_rewired = -1; //save what kay were pressed before tap
     vector<VKeyEvent> resultingVKeyEventSequence;
 
 } loopState;
@@ -668,7 +668,7 @@ void processRewireScancodeToVirtualcode()
         loopState.vcode = SC_NOP;
         return;
     }
-
+    int original = loopState.vcode;
     int rewoutkey = allMaps.rewiremap[loopState.vcode][REWIRE_OUT];
     if (rewoutkey >= 0)
     {
@@ -679,10 +679,12 @@ void processRewireScancodeToVirtualcode()
         int rewtapkey = allMaps.rewiremap[loopState.scancode][REWIRE_TAP];
         if (loopState.tapped && rewtapkey >= 0)  //ifTapped definition applies
         {
+            loopState.original_rewired = rewoutkey;
             //rewired tap (like TAB to TAB) clears all previous modifier taps. Good rule? Consider that maybe "outkey tapped" detection happens(?)
             modifierState.modifierTapped = 0;
 
             //release the preceding "rewired on press" result, only for hardware keys (e.g. "rewire Tab Shift Tab": Shift down was sent when tap arrives)
+            //release for other keys done in processCombos
             loopState.resultingVKeyEventSequence.push_back({ rewoutkey, false });
             //clear the 'modifier down' state for preceding "to mod" def
             if (isModifier(loopState.vcode))
@@ -755,7 +757,8 @@ void processRewireScancodeToVirtualcode()
 
 void processCombos()
 {
-    if (!loopState.isDownstroke)  //this check breaks 'x []' : // || (modifierState.modifierDown == 0 && modifierState.modifierTapped == 0 && modifierState.activeDeadkey == 0))
+    if (!loopState.isDownstroke  //this check breaks 'x []' : // || (modifierState.modifierDown == 0 && modifierState.modifierTapped == 0 && modifierState.activeDeadkey == 0))
+        && (loopState.original_rewired < 0)) //process also it tapped key with rewire is other than tapped, and you just tapped it
         return;
 
     for (ModifierCombo modcombo : allMaps.modCombos)
@@ -771,6 +774,11 @@ void processCombos()
                 )
             {
                 loopState.resultingVKeyEventSequence = modcombo.keyEventSequence;
+                //release rewired key before combo made from tapped one
+                if (loopState.tapped)
+                {
+                    loopState.resultingVKeyEventSequence.insert(loopState.resultingVKeyEventSequence.begin(), { loopState.original_rewired, false });
+                }
                 modifierState.modifierTapped = 0;
                 break;
             }
